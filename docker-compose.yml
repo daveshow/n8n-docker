@@ -45,10 +45,11 @@ services:
       DB_POSTGRESDB_USER: ${POSTGRES_USER}
       DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
 
-      # --- Authentication (Basic Auth) ---
-      N8N_BASIC_AUTH_ACTIVE: "true"
-      N8N_BASIC_AUTH_USER: ${N8N_BASIC_AUTH_USER}
-      N8N_BASIC_AUTH_PASSWORD: ${N8N_BASIC_AUTH_PASSWORD}
+      # --- Authentication ---
+      # n8n 1.x uses its own user-management system.
+      # On first launch visit http://localhost:5678/setup to create the owner
+      # account, then log in at http://localhost:5678/signin.
+      # Use the N8N_OWNER_* values from your .env for the setup wizard.
 
       # --- Security ---
       N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}

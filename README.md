@@ -36,7 +36,7 @@ A production-ready, secure, self-hosted [n8n](https://n8n.io) workflow-automatio
 **Key features of this setup**
 
 - Bound to `127.0.0.1:5678` – zero external exposure
-- Basic Authentication enabled out of the box
+- Built-in user-management with form-based login
 - Encryption key for credential storage
 - Named Docker volumes for data persistence across restarts
 - Health checks so n8n waits for PostgreSQL before starting
@@ -76,10 +76,15 @@ openssl rand -hex 32
 # 5. Start the stack
 docker compose up -d
 
-# 6. Open n8n in your browser
-#    URL:       http://localhost:5678
-#    Username:  admin          (N8N_BASIC_AUTH_USER in .env)
-#    Password:  n8nAdmin2024!  (N8N_BASIC_AUTH_PASSWORD in .env)
+# 6. Open the first-time setup wizard in your browser
+#    URL:  http://localhost:5678/setup
+#    Fill in the N8N_OWNER_* values from your .env:
+#      Email:      admin@example.com  (N8N_OWNER_EMAIL)
+#      First name: Admin              (N8N_OWNER_FIRST_NAME)
+#      Last name:  User               (N8N_OWNER_LAST_NAME)
+#      Password:   n8nAdmin2024!      (N8N_OWNER_PASSWORD)
+#
+#    After setup, log in at:  http://localhost:5678/signin
 ```
 
 ---
@@ -159,8 +164,19 @@ docker compose ps
 docker compose logs -f
 
 # Test with curl
-curl -u admin:n8nAdmin2024! http://localhost:5678/
+curl http://localhost:5678/healthz
 ```
+
+Open the first-time setup wizard at `http://localhost:5678/setup` and enter:
+
+| Field      | Value from `.env`                    |
+|------------|--------------------------------------|
+| Email      | `N8N_OWNER_EMAIL` (e.g. `admin@example.com`) |
+| First name | `N8N_OWNER_FIRST_NAME` (e.g. `Admin`) |
+| Last name  | `N8N_OWNER_LAST_NAME` (e.g. `User`)  |
+| Password   | `N8N_OWNER_PASSWORD`                 |
+
+After setup, log in at `http://localhost:5678/signin`.
 
 #### What to avoid on Linux
 
@@ -225,15 +241,19 @@ docker compose up -d
 
 ```bash
 docker compose ps
-open http://localhost:5678
+open http://localhost:5678/setup
 ```
 
-Login with:
+Fill in the first-time setup wizard with the values from your `.env`:
 
-| Field    | Value           |
-|----------|-----------------|
-| Username | `admin`         |
-| Password | `n8nAdmin2024!` |
+| Field      | Value                          |
+|------------|--------------------------------|
+| Email      | `N8N_OWNER_EMAIL`              |
+| First name | `N8N_OWNER_FIRST_NAME`         |
+| Last name  | `N8N_OWNER_LAST_NAME`          |
+| Password   | `N8N_OWNER_PASSWORD`           |
+
+After setup, log in at `http://localhost:5678/signin`.
 
 #### What to avoid on macOS
 
@@ -314,15 +334,19 @@ docker compose up -d
 
 ```powershell
 docker compose ps
-Start-Process "http://localhost:5678"
+Start-Process "http://localhost:5678/setup"
 ```
 
-Login with:
+Fill in the first-time setup wizard with the values from your `.env`:
 
-| Field    | Value           |
-|----------|-----------------|
-| Username | `admin`         |
-| Password | `n8nAdmin2024!` |
+| Field      | Value                  |
+|------------|------------------------|
+| Email      | `N8N_OWNER_EMAIL`      |
+| First name | `N8N_OWNER_FIRST_NAME` |
+| Last name  | `N8N_OWNER_LAST_NAME`  |
+| Password   | `N8N_OWNER_PASSWORD`   |
+
+After setup, log in at `http://localhost:5678/signin`.
 
 #### What to avoid on Windows
 
@@ -341,14 +365,16 @@ Login with:
 
 All default credentials are defined in `.env.example` and copied to `.env` during setup.
 
-| Setting               | Default value        | Where to change                   |
-|-----------------------|----------------------|-----------------------------------|
-| n8n username          | `admin`              | `N8N_BASIC_AUTH_USER` in `.env`   |
-| n8n password          | `n8nAdmin2024!`      | `N8N_BASIC_AUTH_PASSWORD` in `.env` |
-| PostgreSQL database   | `n8n`                | `POSTGRES_DB` in `.env`           |
-| PostgreSQL user       | `n8n_user`           | `POSTGRES_USER` in `.env`         |
-| PostgreSQL password   | `PgPassword2024!`    | `POSTGRES_PASSWORD` in `.env`     |
-| Encryption key        | *(must be generated)*| `N8N_ENCRYPTION_KEY` in `.env`    |
+| Setting               | Default value        | Where to change                       |
+|-----------------------|----------------------|---------------------------------------|
+| n8n owner email       | `admin@example.com`  | `N8N_OWNER_EMAIL` in `.env`           |
+| n8n owner first name  | `Admin`              | `N8N_OWNER_FIRST_NAME` in `.env`      |
+| n8n owner last name   | `User`               | `N8N_OWNER_LAST_NAME` in `.env`       |
+| n8n owner password    | `n8nAdmin2024!`      | `N8N_OWNER_PASSWORD` in `.env`        |
+| PostgreSQL database   | `n8n`                | `POSTGRES_DB` in `.env`               |
+| PostgreSQL user       | `n8n_user`           | `POSTGRES_USER` in `.env`             |
+| PostgreSQL password   | `PgPassword2024!`    | `POSTGRES_PASSWORD` in `.env`         |
+| Encryption key        | *(must be generated)*| `N8N_ENCRYPTION_KEY` in `.env`        |
 
 > **You must replace `N8N_ENCRYPTION_KEY`** with a real random value before first launch.
 > Changing it later will invalidate all stored credentials in n8n.
@@ -378,8 +404,10 @@ n8n-docker/
 
 | Variable                  | Required | Description                                        |
 |---------------------------|----------|----------------------------------------------------|
-| `N8N_BASIC_AUTH_USER`     | Yes      | Username to log in to n8n                          |
-| `N8N_BASIC_AUTH_PASSWORD` | Yes      | Password to log in to n8n                          |
+| `N8N_OWNER_EMAIL`         | Yes      | Owner account email (entered in setup wizard)      |
+| `N8N_OWNER_FIRST_NAME`    | Yes      | Owner account first name                           |
+| `N8N_OWNER_LAST_NAME`     | Yes      | Owner account last name                            |
+| `N8N_OWNER_PASSWORD`      | Yes      | Owner account password (entered in setup wizard)   |
 | `N8N_ENCRYPTION_KEY`      | Yes      | 64-char hex key for encrypting stored credentials  |
 | `POSTGRES_DB`             | Yes      | Name of the PostgreSQL database                    |
 | `POSTGRES_USER`           | Yes      | PostgreSQL username                                |
@@ -421,7 +449,7 @@ docker compose up -d n8n
 | Topic              | Detail                                                                        |
 |--------------------|-------------------------------------------------------------------------------|
 | Port binding       | `127.0.0.1:5678` – only processes on the same machine can connect             |
-| Authentication     | HTTP Basic Auth enforced on every request                                     |
+| Authentication     | Built-in user management; form-based login at `/signin`                       |
 | Secrets            | All secrets live in `.env`, which is `.gitignore`d                            |
 | Encryption key     | Encrypts all n8n credentials at rest in the database                          |
 | Database isolation | `postgres` is on an internal Docker network; it has no host-port binding      |
@@ -439,7 +467,7 @@ The `.github/workflows/ci.yml` workflow runs on every push and pull request to `
 | `lint-compose`   | `docker-compose.yml` syntax; both services declared | Invalid YAML or missing service        |
 | `validate-env`   | All required variables present in `.env.example`    | A variable was removed or renamed      |
 | `security-check` | `.env` in `.gitignore`; port bound to `127.0.0.1`   | Secrets risk or external exposure      |
-| `integration`    | Stack starts; n8n returns 200; Basic Auth returns 401 | Container crash, bad config, or auth misconfiguration |
+| `integration`    | Stack starts; setup API creates owner; `/api/v1/me` returns 401; login returns 200 | Container crash, bad config, or auth misconfiguration |
 
 ### How to fix a CI failure
 
@@ -451,12 +479,13 @@ The `.github/workflows/ci.yml` workflow runs on every push and pull request to `
 |--------------------------------------------------|-------------------------------------------------------------------------|
 | `'n8n' service missing`                          | Restore the `n8n:` block in `docker-compose.yml`                        |
 | `'postgres' service missing`                     | Restore the `postgres:` block in `docker-compose.yml`                   |
-| `'N8N_ENCRYPTION_KEY' is missing from .env.example` | Add the variable back to `.env.example`                              |
-| `.env is NOT listed in .gitignore`               | Add `.env` to `.gitignore`                                              |
-| `n8n port is not bound to 127.0.0.1`             | Change `"5678:5678"` to `"127.0.0.1:5678:5678"` in `docker-compose.yml` |
-| `Expected 401 Unauthorized`                      | Ensure `N8N_BASIC_AUTH_ACTIVE: "true"` is set in `docker-compose.yml`  |
-| `Login with preset credentials failed`           | Check that `N8N_BASIC_AUTH_USER`/`_PASSWORD` match `.env.example`       |
-| `n8n did not become healthy`                     | Check `docker compose logs` for database connection errors              |
+| `'N8N_OWNER_EMAIL' is missing from .env.example`    | Add the variable back to `.env.example`                                         |
+| `.env is NOT listed in .gitignore`                  | Add `.env` to `.gitignore`                                                      |
+| `n8n port is not bound to 127.0.0.1`                | Change `"5678:5678"` to `"127.0.0.1:5678:5678"` in `docker-compose.yml`        |
+| `Owner setup failed`                                | Check `docker compose logs n8n` for startup errors; ensure DB is healthy        |
+| `Expected 401 Unauthorized`                         | n8n's `/api/v1/me` should require auth; check n8n version or container logs     |
+| `Login with preset credentials failed`              | Check that `N8N_OWNER_EMAIL`/`_PASSWORD` in `.env.example` match what was entered in the setup wizard |
+| `n8n did not become healthy`                        | Check `docker compose logs` for database connection errors                      |
 
 ---
 
@@ -485,11 +514,14 @@ ports:
 
 **Forgot the n8n password**
 
-Update `N8N_BASIC_AUTH_PASSWORD` in `.env`, then restart:
+Reset the owner account via the n8n CLI inside the running container:
 
 ```bash
-docker compose restart n8n
+docker compose exec n8n n8n user-management:reset
 ```
+
+Then open `http://localhost:5678/setup` to create a new owner account.
+Alternatively, update `N8N_OWNER_PASSWORD` in `.env` and re-run the setup wizard after a full reset.
 
 **Data not persisting after `docker compose down`**
 

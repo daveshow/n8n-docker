@@ -72,8 +72,10 @@ jobs:
       - name: Ensure all required variables are present in .env.example
         run: |
           REQUIRED_VARS=(
-            N8N_BASIC_AUTH_USER
-            N8N_BASIC_AUTH_PASSWORD
+            N8N_OWNER_EMAIL
+            N8N_OWNER_FIRST_NAME
+            N8N_OWNER_LAST_NAME
+            N8N_OWNER_PASSWORD
             N8N_ENCRYPTION_KEY
             POSTGRES_DB
             POSTGRES_USER
@@ -160,23 +162,46 @@ jobs:
           docker compose logs
           exit 1
 
-      - name: Verify Basic Auth is enforced (401 without credentials)
+      - name: Create owner account via setup API
+        # n8n 1.x removed Basic Auth; the owner account must be created
+        # through the built-in user-management setup endpoint on first launch.
         run: |
+          N8N_EMAIL=$(grep '^N8N_OWNER_EMAIL='      .env | cut -d= -f2)
+          N8N_FIRST=$(grep '^N8N_OWNER_FIRST_NAME=' .env | cut -d= -f2)
+          N8N_LAST=$(grep '^N8N_OWNER_LAST_NAME='   .env | cut -d= -f2)
+          N8N_PASS=$(grep '^N8N_OWNER_PASSWORD='    .env | cut -d= -f2)
+
+          HTTP_CODE=$(curl --silent --output /tmp/setup.json --write-out "%{http_code}" \
+            --request POST \
+            --header "Content-Type: application/json" \
+            --data "{\"email\":\"${N8N_EMAIL}\",\"firstName\":\"${N8N_FIRST}\",\"lastName\":\"${N8N_LAST}\",\"password\":\"${N8N_PASS}\"}" \
+            http://127.0.0.1:5678/api/v1/owner/setup)
+          echo "Owner setup HTTP code: ${HTTP_CODE}"
+          cat /tmp/setup.json || true
+          [ "$HTTP_CODE" -eq 200 ] \
+            || { echo "ERROR: Owner setup failed with HTTP ${HTTP_CODE}."; exit 1; }
+          echo "Owner account created successfully."
+
+      - name: Verify unauthenticated API access returns 401
+        run: |
+          # n8n 1.x protects all REST API endpoints; unauthenticated calls
+          # must return 401 Unauthorized.
           HTTP_CODE=$(curl --silent --output /dev/null --write-out "%{http_code}" \
-            http://127.0.0.1:5678/ || true)
+            http://127.0.0.1:5678/api/v1/me)
           echo "HTTP code without credentials: ${HTTP_CODE}"
-          # n8n returns 401 when Basic Auth is active and no credentials are provided
           [ "$HTTP_CODE" -eq 401 ] \
-            || { echo "ERROR: Expected 401 Unauthorized but got ${HTTP_CODE}. Basic Auth may not be active."; exit 1; }
-          echo "Basic Auth is correctly enforced."
+            || { echo "ERROR: Expected 401 Unauthorized but got ${HTTP_CODE}. Authentication may not be active."; exit 1; }
+          echo "Authentication is correctly enforced."
 
       - name: Verify login with preset credentials
         run: |
-          N8N_USER=$(grep '^N8N_BASIC_AUTH_USER=' .env | cut -d= -f2)
-          N8N_PASS=$(grep '^N8N_BASIC_AUTH_PASSWORD=' .env | cut -d= -f2)
+          N8N_EMAIL=$(grep '^N8N_OWNER_EMAIL='   .env | cut -d= -f2)
+          N8N_PASS=$(grep '^N8N_OWNER_PASSWORD=' .env | cut -d= -f2)
           HTTP_CODE=$(curl --silent --output /dev/null --write-out "%{http_code}" \
-            --user "${N8N_USER}:${N8N_PASS}" \
-            http://127.0.0.1:5678/ || true)
+            --request POST \
+            --header "Content-Type: application/json" \
+            --data "{\"email\":\"${N8N_EMAIL}\",\"password\":\"${N8N_PASS}\"}" \
+            http://127.0.0.1:5678/rest/login)
           echo "HTTP code with valid credentials: ${HTTP_CODE}"
           [ "$HTTP_CODE" -eq 200 ] \
             || { echo "ERROR: Login with preset credentials failed (HTTP ${HTTP_CODE})."; exit 1; }
