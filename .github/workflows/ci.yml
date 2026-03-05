@@ -147,14 +147,22 @@ jobs:
 
       - name: Wait for n8n to become healthy (up to 120 s)
         run: |
-          echo "Waiting for n8n to respond on http://127.0.0.1:5678 ..."
+          echo "Waiting for n8n to be fully ready on http://127.0.0.1:5678 ..."
           for i in $(seq 1 24); do
-            HTTP_CODE=$(curl --silent --output /dev/null --write-out "%{http_code}" \
+            HTTP_CODE=$(curl --silent --output /tmp/healthz_body.txt --write-out "%{http_code}" \
               http://127.0.0.1:5678/healthz || true)
+            BODY=$(cat /tmp/healthz_body.txt 2>/dev/null || true)
             echo "  Attempt ${i}/24 – HTTP ${HTTP_CODE}"
             if [ "$HTTP_CODE" -eq 200 ] 2>/dev/null; then
-              echo "n8n is healthy!"
-              exit 0
+              # n8n serves an HTML "starting up" splash on ALL endpoints (including
+              # /healthz) while it is still initializing. Only proceed once the
+              # response body is the real JSON status payload, not the splash page.
+              if echo "${BODY}" | grep -qi "starting up"; then
+                echo "  n8n is still initializing (startup splash detected) ..."
+              else
+                echo "n8n is healthy and fully ready!"
+                exit 0
+              fi
             fi
             sleep 5
           done
@@ -165,22 +173,35 @@ jobs:
       - name: Create owner account via setup API
         # n8n 1.x removed Basic Auth; the owner account must be created
         # through the built-in user-management setup endpoint on first launch.
+        # Retry because n8n may still briefly show the startup splash even
+        # after /healthz reports ready.
         run: |
           N8N_EMAIL=$(grep '^N8N_OWNER_EMAIL='      .env | cut -d= -f2)
           N8N_FIRST=$(grep '^N8N_OWNER_FIRST_NAME=' .env | cut -d= -f2)
           N8N_LAST=$(grep '^N8N_OWNER_LAST_NAME='   .env | cut -d= -f2)
           N8N_PASS=$(grep '^N8N_OWNER_PASSWORD='    .env | cut -d= -f2)
 
-          HTTP_CODE=$(curl --silent --output /tmp/setup.json --write-out "%{http_code}" \
-            --request POST \
-            --header "Content-Type: application/json" \
-            --data "{\"email\":\"${N8N_EMAIL}\",\"firstName\":\"${N8N_FIRST}\",\"lastName\":\"${N8N_LAST}\",\"password\":\"${N8N_PASS}\"}" \
-            http://127.0.0.1:5678/api/v1/owner/setup)
-          echo "Owner setup HTTP code: ${HTTP_CODE}"
-          cat /tmp/setup.json || true
-          [ "$HTTP_CODE" -eq 200 ] \
-            || { echo "ERROR: Owner setup failed with HTTP ${HTTP_CODE}."; exit 1; }
-          echo "Owner account created successfully."
+          for attempt in $(seq 1 10); do
+            HTTP_CODE=$(curl --silent --output /tmp/setup.json --write-out "%{http_code}" \
+              --request POST \
+              --header "Content-Type: application/json" \
+              --data "{\"email\":\"${N8N_EMAIL}\",\"firstName\":\"${N8N_FIRST}\",\"lastName\":\"${N8N_LAST}\",\"password\":\"${N8N_PASS}\"}" \
+              http://127.0.0.1:5678/api/v1/owner/setup)
+            echo "Owner setup attempt ${attempt}/10 – HTTP ${HTTP_CODE}"
+            BODY=$(cat /tmp/setup.json 2>/dev/null || true)
+            # If n8n is still in startup mode the body will contain "starting up"
+            if [ "$HTTP_CODE" -eq 200 ] && ! echo "${BODY}" | grep -qi "starting up"; then
+              echo "Owner account created successfully."
+              break
+            fi
+            echo "  Not ready yet (body: ${BODY}), retrying in 5 s ..."
+            sleep 5
+            if [ "$attempt" -eq 10 ]; then
+              echo "ERROR: Owner setup failed after 10 attempts (last HTTP ${HTTP_CODE})."
+              cat /tmp/setup.json || true
+              exit 1
+            fi
+          done
 
       - name: Verify unauthenticated API access returns 401
         run: |
