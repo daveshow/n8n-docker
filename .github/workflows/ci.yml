@@ -1,0 +1,187 @@
+# =============================================================
+# CI – n8n Docker Compose Validation
+# =============================================================
+# Runs on every push and pull request to main.
+# Pull requests are blocked from merging if any job fails.
+#
+# Jobs
+# ─────────────────────────────────────────────────────────────
+# 1. lint-compose    – Validate docker-compose.yml syntax
+# 2. validate-env    – Ensure .env.example has all required vars
+# 3. security-check  – Confirm no secrets are committed to Git
+# 4. integration     – Spin up the stack, verify n8n is healthy
+# =============================================================
+
+name: CI – n8n Docker Compose
+
+on:
+  push:
+    branches: ["main", "copilot/**"]
+  pull_request:
+    branches: ["main"]
+
+# Cancel in-progress runs for the same branch/PR
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+
+  # -----------------------------------------------------------
+  # Job 1 – Lint / syntax-check docker-compose.yml
+  # -----------------------------------------------------------
+  lint-compose:
+    name: Lint docker-compose.yml
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create .env from .env.example
+        run: |
+          cp .env.example .env
+          # Replace the placeholder encryption key with a real random value
+          RANDOM_KEY=$(openssl rand -hex 32)
+          sed -i "s/REPLACE_WITH_OUTPUT_OF_openssl_rand_-hex_32/${RANDOM_KEY}/" .env
+
+      - name: Validate docker-compose.yml syntax
+        run: docker compose config --quiet
+        # docker compose config exits non-zero if the file is invalid
+
+      - name: Confirm expected services are declared
+        run: |
+          SERVICES=$(docker compose config --services)
+          echo "Detected services: ${SERVICES}"
+          echo "${SERVICES}" | grep -q "^n8n$"    || { echo "ERROR: 'n8n' service missing";      exit 1; }
+          echo "${SERVICES}" | grep -q "^postgres$" || { echo "ERROR: 'postgres' service missing"; exit 1; }
+
+  # -----------------------------------------------------------
+  # Job 2 – Validate .env.example completeness
+  # -----------------------------------------------------------
+  validate-env:
+    name: Validate .env.example
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Ensure all required variables are present in .env.example
+        run: |
+          REQUIRED_VARS=(
+            N8N_BASIC_AUTH_USER
+            N8N_BASIC_AUTH_PASSWORD
+            N8N_ENCRYPTION_KEY
+            POSTGRES_DB
+            POSTGRES_USER
+            POSTGRES_PASSWORD
+          )
+          MISSING=0
+          for VAR in "${REQUIRED_VARS[@]}"; do
+            if ! grep -q "^${VAR}=" .env.example; then
+              echo "ERROR: '${VAR}' is missing from .env.example"
+              MISSING=1
+            fi
+          done
+          [ "$MISSING" -eq 0 ] || exit 1
+          echo "All required variables are present in .env.example."
+
+  # -----------------------------------------------------------
+  # Job 3 – Security: confirm .env is not committed
+  # -----------------------------------------------------------
+  security-check:
+    name: Security – no committed secrets
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Confirm .env is listed in .gitignore
+        run: |
+          grep -q "^\.env$" .gitignore \
+            || { echo "ERROR: .env is NOT listed in .gitignore – secrets could be committed!"; exit 1; }
+          echo ".env is correctly listed in .gitignore."
+
+      - name: Confirm .env is not tracked in Git
+        run: |
+          if git ls-files --error-unmatch .env 2>/dev/null; then
+            echo "ERROR: .env is tracked by Git. Remove it with: git rm --cached .env"
+            exit 1
+          fi
+          echo ".env is not tracked by Git."
+
+      - name: Confirm n8n port is bound to 127.0.0.1 (no external exposure)
+        run: |
+          grep -q '127\.0\.0\.1:5678' docker-compose.yml \
+            || { echo "ERROR: n8n port is not bound to 127.0.0.1 – external access is possible!"; exit 1; }
+          echo "n8n port is correctly restricted to 127.0.0.1."
+
+  # -----------------------------------------------------------
+  # Job 4 – Integration: start the stack and health-check n8n
+  # -----------------------------------------------------------
+  integration:
+    name: Integration – stack health check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    needs: [lint-compose, validate-env, security-check]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create .env from .env.example
+        run: |
+          cp .env.example .env
+          RANDOM_KEY=$(openssl rand -hex 32)
+          sed -i "s/REPLACE_WITH_OUTPUT_OF_openssl_rand_-hex_32/${RANDOM_KEY}/" .env
+
+      - name: Start the stack
+        run: docker compose up -d
+
+      - name: Wait for n8n to become healthy (up to 120 s)
+        run: |
+          echo "Waiting for n8n to respond on http://127.0.0.1:5678 ..."
+          for i in $(seq 1 24); do
+            HTTP_CODE=$(curl --silent --output /dev/null --write-out "%{http_code}" \
+              http://127.0.0.1:5678/healthz || true)
+            echo "  Attempt ${i}/24 – HTTP ${HTTP_CODE}"
+            if [ "$HTTP_CODE" -eq 200 ] 2>/dev/null; then
+              echo "n8n is healthy!"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "ERROR: n8n did not become healthy within 120 seconds."
+          docker compose logs
+          exit 1
+
+      - name: Verify Basic Auth is enforced (401 without credentials)
+        run: |
+          HTTP_CODE=$(curl --silent --output /dev/null --write-out "%{http_code}" \
+            http://127.0.0.1:5678/ || true)
+          echo "HTTP code without credentials: ${HTTP_CODE}"
+          # n8n returns 401 when Basic Auth is active and no credentials are provided
+          [ "$HTTP_CODE" -eq 401 ] \
+            || { echo "ERROR: Expected 401 Unauthorized but got ${HTTP_CODE}. Basic Auth may not be active."; exit 1; }
+          echo "Basic Auth is correctly enforced."
+
+      - name: Verify login with preset credentials
+        run: |
+          N8N_USER=$(grep '^N8N_BASIC_AUTH_USER=' .env | cut -d= -f2)
+          N8N_PASS=$(grep '^N8N_BASIC_AUTH_PASSWORD=' .env | cut -d= -f2)
+          HTTP_CODE=$(curl --silent --output /dev/null --write-out "%{http_code}" \
+            --user "${N8N_USER}:${N8N_PASS}" \
+            http://127.0.0.1:5678/ || true)
+          echo "HTTP code with valid credentials: ${HTTP_CODE}"
+          [ "$HTTP_CODE" -eq 200 ] \
+            || { echo "ERROR: Login with preset credentials failed (HTTP ${HTTP_CODE})."; exit 1; }
+          echo "Login with preset credentials succeeded."
+
+      - name: Tear down the stack
+        if: always()
+        run: docker compose down --volumes
