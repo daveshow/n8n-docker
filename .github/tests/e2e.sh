@@ -16,7 +16,7 @@ for attempt in $(seq 1 10); do
     --request POST \
     --header "Content-Type: application/json" \
     --data "{\"email\":\"${N8N_EMAIL}\",\"firstName\":\"${N8N_FIRST}\",\"lastName\":\"${N8N_LAST}\",\"password\":\"${N8N_PASS}\"}" \
-    http://127.0.0.1:5678/api/v1/owner/setup || echo "000")
+    http://127.0.0.1:5678/rest/owner/setup || echo "000")
   BODY=$(cat /tmp/setup.json 2>/dev/null || true)
   echo "Attempt ${attempt}/10 - HTTP ${HTTP_CODE}"
   if [ "$HTTP_CODE" -eq 200 ] && ! echo "${BODY}" | grep -qi "starting up"; then
