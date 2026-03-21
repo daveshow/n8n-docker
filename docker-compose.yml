@@ -32,7 +32,7 @@ services:
   # Bound to 127.0.0.1 so no external traffic can reach it.
   # ----------------------------------------------------------
   n8n:
-    image: n8nio/n8n:latest
+    image: n8nio/n8n:1.0.1
     restart: unless-stopped
     ports:
       - "127.0.0.1:5678:5678"

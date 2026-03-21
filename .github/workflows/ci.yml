@@ -170,63 +170,10 @@ jobs:
           docker compose logs
           exit 1
 
-      - name: Create owner account via setup API
-        # n8n 1.x removed Basic Auth; the owner account must be created
-        # through the built-in user-management setup endpoint on first launch.
-        # Retry because n8n may still briefly show the startup splash even
-        # after /healthz reports ready.
+      - name: Run E2E smoke tests
         run: |
-          N8N_EMAIL=$(grep '^N8N_OWNER_EMAIL='      .env | cut -d= -f2)
-          N8N_FIRST=$(grep '^N8N_OWNER_FIRST_NAME=' .env | cut -d= -f2)
-          N8N_LAST=$(grep '^N8N_OWNER_LAST_NAME='   .env | cut -d= -f2)
-          N8N_PASS=$(grep '^N8N_OWNER_PASSWORD='    .env | cut -d= -f2)
-
-          for attempt in $(seq 1 10); do
-            HTTP_CODE=$(curl --silent --output /tmp/setup.json --write-out "%{http_code}" \
-              --request POST \
-              --header "Content-Type: application/json" \
-              --data "{\"email\":\"${N8N_EMAIL}\",\"firstName\":\"${N8N_FIRST}\",\"lastName\":\"${N8N_LAST}\",\"password\":\"${N8N_PASS}\"}" \
-              http://127.0.0.1:5678/api/v1/owner/setup)
-            echo "Owner setup attempt ${attempt}/10 – HTTP ${HTTP_CODE}"
-            BODY=$(cat /tmp/setup.json 2>/dev/null || true)
-            # If n8n is still in startup mode the body will contain "starting up"
-            if [ "$HTTP_CODE" -eq 200 ] && ! echo "${BODY}" | grep -qi "starting up"; then
-              echo "Owner account created successfully."
-              break
-            fi
-            echo "  Not ready yet (body: ${BODY}), retrying in 5 s ..."
-            sleep 5
-            if [ "$attempt" -eq 10 ]; then
-              echo "ERROR: Owner setup failed after 10 attempts (last HTTP ${HTTP_CODE})."
-              cat /tmp/setup.json || true
-              exit 1
-            fi
-          done
-
-      - name: Verify unauthenticated API access returns 401
-        run: |
-          # n8n 1.x protects all REST API endpoints; unauthenticated calls
-          # must return 401 Unauthorized.
-          HTTP_CODE=$(curl --silent --output /dev/null --write-out "%{http_code}" \
-            http://127.0.0.1:5678/api/v1/me)
-          echo "HTTP code without credentials: ${HTTP_CODE}"
-          [ "$HTTP_CODE" -eq 401 ] \
-            || { echo "ERROR: Expected 401 Unauthorized but got ${HTTP_CODE}. Authentication may not be active."; exit 1; }
-          echo "Authentication is correctly enforced."
-
-      - name: Verify login with preset credentials
-        run: |
-          N8N_EMAIL=$(grep '^N8N_OWNER_EMAIL='   .env | cut -d= -f2)
-          N8N_PASS=$(grep '^N8N_OWNER_PASSWORD=' .env | cut -d= -f2)
-          HTTP_CODE=$(curl --silent --output /dev/null --write-out "%{http_code}" \
-            --request POST \
-            --header "Content-Type: application/json" \
-            --data "{\"email\":\"${N8N_EMAIL}\",\"password\":\"${N8N_PASS}\"}" \
-            http://127.0.0.1:5678/rest/login)
-          echo "HTTP code with valid credentials: ${HTTP_CODE}"
-          [ "$HTTP_CODE" -eq 200 ] \
-            || { echo "ERROR: Login with preset credentials failed (HTTP ${HTTP_CODE})."; exit 1; }
-          echo "Login with preset credentials succeeded."
+          chmod +x .github/tests/e2e.sh
+          .github/tests/e2e.sh
 
       - name: Tear down the stack
         if: always()
