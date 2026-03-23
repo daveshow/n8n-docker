@@ -1,0 +1,85 @@
+# ============================================================
+# n8n Docker Compose Setup
+# Access:  http://localhost:5678
+# Credentials: see .env (copied from .env.example)
+# ============================================================
+
+services:
+
+  # ----------------------------------------------------------
+  # PostgreSQL – persistent workflow database
+  # ----------------------------------------------------------
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - n8n_internal
+
+  # ----------------------------------------------------------
+  # n8n – workflow automation
+  # Bound to 127.0.0.1 so no external traffic can reach it.
+  # ----------------------------------------------------------
+  n8n:
+    image: n8nio/n8n:1.0.1
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5678:5678"
+    environment:
+      # --- Database ---
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: ${POSTGRES_DB}
+      DB_POSTGRESDB_USER: ${POSTGRES_USER}
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
+
+      # --- Authentication ---
+      # n8n 1.x uses its own user-management system.
+      # On first launch visit http://localhost:5678/setup to create the owner
+      # account, then log in at http://localhost:5678/signin.
+      # Use the N8N_OWNER_* values from your .env for the setup wizard.
+
+      # --- Security ---
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+
+      # --- Runtime ---
+      N8N_HOST: localhost
+      N8N_PORT: 5678
+      N8N_PROTOCOL: http
+      WEBHOOK_URL: http://localhost:5678/
+      GENERIC_TIMEZONE: ${TIMEZONE:-UTC}
+    volumes:
+      - n8n_data:/home/node/.n8n
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - n8n_internal
+
+# ============================================================
+# Networks
+# n8n_internal keeps the database off the host network while
+# still allowing n8n to reach the internet for integrations.
+# ============================================================
+networks:
+  n8n_internal:
+    driver: bridge
+
+# ============================================================
+# Volumes – data persists across container restarts
+# ============================================================
+volumes:
+  postgres_data:
+  n8n_data:

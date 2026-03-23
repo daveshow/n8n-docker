@@ -1,0 +1,19 @@
+# =============================================================
+# Git – files to exclude from version control
+# =============================================================
+
+# Runtime secrets – copy .env.example → .env, never commit .env
+.env
+
+# Docker build cache
+*.tar
+
+# OS artefacts
+.DS_Store
+Thumbs.db
+
+# Editor artefacts
+.vscode/
+.idea/
+*.swp
+*.swo
