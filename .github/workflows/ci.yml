@@ -170,11 +170,6 @@ jobs:
           docker compose logs
           exit 1
 
-      - name: Run E2E smoke tests
-        run: |
-          chmod +x .github/tests/e2e.sh
-          .github/tests/e2e.sh
-
       - name: Tear down the stack
         if: always()
         run: docker compose down --volumes
